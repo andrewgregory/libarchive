@@ -105,6 +105,7 @@ struct mtree {
 
 	int64_t			 cur_size;
 	char checkfs;
+    char unique;
 };
 
 static int	bid_keycmp(const char *, const char *, ssize_t);
@@ -193,7 +194,15 @@ archive_read_format_mtree_options(struct archive_read *a,
 			mtree->checkfs = 1;
 		}
 		return (ARCHIVE_OK);
-	}
+	} else if(strcmp(key, "unique") == 0) {
+		/* Allows to read information missing from the mtree from the file system */
+		if (val == NULL || val[0] == 0) {
+			mtree->unique = 0;
+		} else {
+			mtree->unique = 1;
+		}
+		return (ARCHIVE_OK);
+    }
 
 	/* Note: The "warn" return is just to inform the options
 	 * supervisor that we didn't handle it.  It will generate
@@ -1112,25 +1121,27 @@ parse_file(struct archive_read *a, struct archive_entry *entry,
 
 	if (mentry->full) {
 		archive_entry_copy_pathname(entry, mentry->name);
-		/*
-		 * "Full" entries are allowed to have multiple lines
-		 * and those lines aren't required to be adjacent.  We
-		 * don't support multiple lines for "relative" entries
-		 * nor do we make any attempt to merge data from
-		 * separate "relative" and "full" entries.  (Merging
-		 * "relative" and "full" entries would require dealing
-		 * with pathname canonicalization, which is a very
-		 * tricky subject.)
-		 */
-		for (mp = mentry->next; mp != NULL; mp = mp->next) {
-			if (mp->full && !mp->used
-			    && strcmp(mentry->name, mp->name) == 0) {
-				/* Later lines override earlier ones. */
-				mp->used = 1;
-				r1 = parse_line(a, entry, mtree, mp,
-				    &parsed_kws);
-				if (r1 < r)
-					r = r1;
+		if(!mtree->unique) {
+			/*
+			 * "Full" entries are allowed to have multiple lines
+			 * and those lines aren't required to be adjacent.  We
+			 * don't support multiple lines for "relative" entries
+			 * nor do we make any attempt to merge data from
+			 * separate "relative" and "full" entries.  (Merging
+			 * "relative" and "full" entries would require dealing
+			 * with pathname canonicalization, which is a very
+			 * tricky subject.)
+			 */
+			for (mp = mentry->next; mp != NULL; mp = mp->next) {
+				if (mp->full && !mp->used
+						&& strcmp(mentry->name, mp->name) == 0) {
+					/* Later lines override earlier ones. */
+					mp->used = 1;
+					r1 = parse_line(a, entry, mtree, mp,
+							&parsed_kws);
+					if (r1 < r)
+						r = r1;
+				}
 			}
 		}
 	} else {
